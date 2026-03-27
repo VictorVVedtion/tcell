@@ -298,7 +298,13 @@ def validate():
 
 
 # ── Self-Test ─────────────────────────────────────────
-COLD_START_THRESHOLD = 20
+def _get_cold_start_threshold() -> int:
+    """自适应冷启动阈值：auto-bootstrap=8, 手动=20。"""
+    state = load_state()
+    profile = state.get("project_profile", {})
+    return profile.get("bootstrap_threshold", 20)
+
+COLD_START_THRESHOLD = _get_cold_start_threshold()
 
 def _parse_frontmatter(path: Path) -> dict:
     """解析 critic .md 文件的 YAML frontmatter（简化版，prepare.py 内部使用）。"""
@@ -622,7 +628,8 @@ def status():
     clean = load_jsonl(CLEAN_SAMPLES_FILE)
     critics = list(CRITICS_DIR.glob("*.md")) if CRITICS_DIR.exists() else []
 
-    cold_start = len(canaries) < 20
+    threshold = _get_cold_start_threshold()
+    cold_start = len(canaries) < threshold
 
     print(f"🐕 tcell Status")
     print(f"  canaries: {len(canaries)} {'(cold start)' if cold_start else '(normal mode)'}")

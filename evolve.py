@@ -38,6 +38,7 @@ from prepare import (
     PROJECT_ROOT, CANARIES_FILE, CLEAN_SAMPLES_FILE, RESULTS_FILE,
     LOG_FILE, CRITICS_DIR, REPORTS_DIR,
     load_jsonl, evaluate_regret, evaluate_fp_rate, log_entry,
+    _get_cold_start_threshold,
 )
 
 MUTATION_OPERATORS = [
@@ -111,9 +112,9 @@ def select_next() -> dict:
     选择下一个要进化的 critic 和变异算子。
     策略：最久未进化的 critic 优先。
     """
-    # 冷启动门控：canaries < 20 时禁止进化
+    # 冷启动门控：canaries < threshold 时禁止进化（阈值自适应）
     canaries = load_jsonl(CANARIES_FILE)
-    COLD_START_THRESHOLD = 20
+    COLD_START_THRESHOLD = _get_cold_start_threshold()
     if len(canaries) < COLD_START_THRESHOLD:
         print(json.dumps({
             "error": "cold_start",
