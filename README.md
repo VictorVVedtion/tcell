@@ -25,22 +25,44 @@ tcell is an independent cognitive reviewer. It uses fresh context to audit the m
 
 ## Why This Exists
 
-Real case: Opus 4.6 generated 107 SFT training samples and self-evaluated:
+### Real-World Case Study: The Whack-a-Mole Problem
 
-| Metric | Main agent self-eval | Independent review |
+We used Claude Opus 4.6 to generate 107 SFT training samples for a domain-specific classification task. The main agent generated the data and evaluated its own quality — within the same session context.
+
+**Round 1 — Self-assessment vs. independent review:**
+
+| Metric | Main agent self-eval | Independent review (same model, fresh context) |
 |---|---|---|
 | Pass rate | 100% | — |
 | Quality score | All 1.000 (perfect) | 5.5/10 |
 | Assessment | "Extremely high quality" | 5 critical issues found |
 
 What the independent review found:
-- **45.8% of confidence values homogenized at 0.62** (std = 0)
-- **Bias labels position-bound** (C1 was always confirmation_bias)
-- **loss_aversion completely absent** (the most critical bias for trading scenarios)
-- **Quality scorer non-discriminating** (107 samples all scored 1.000)
-- **Synthesis always fully flipped** (no partial corrections)
+- **45.8% of confidence values collapsed to 0.62** (std = 0 — not a distribution, a constant)
+- **Label-position binding** — slot C1 carried Type A labels 48% of the time
+- **Critical category absent** — the most important label type for the target domain had 0 samples
+- **Quality scorer non-discriminating** — 107 samples, all scored 1.000 (rubber stamp)
+- **All corrections were 180-degree flips** — no partial corrections existed
 
-The key insight: **both reviews used the same model (Opus 4.6).** The problem isn't model capability. It's context isolation. The same model with independent context catches the structural blindspots.
+**Round 2 — The fix created new blindspots:**
+
+The main agent claimed it had fixed the position bias. An independent review found:
+
+| Issue | Status | Detail |
+|---|---|---|
+| C1 position binding | Shifted, not fixed | Old binding gone, new one emerged: C1 now carried Type D labels 67% |
+| Missing category | Overcorrected | The previously dominant Type A label dropped to 0 occurrences |
+| Score discrimination | Partially fixed | Aggregate scores improved (0.861–0.911), but 50% of sub-dimensions still had variance = 0 |
+
+The root cause: a hint function in the generation prompt explicitly suggested "use Type X for the first slot." The agent applied surface-level prohibition ("don't put Type A in C1") instead of removing the structural cause. `random.shuffle()` was already present — it shuffled order but not content selection. **Prohibition-based fixes are whack-a-mole: suppress one pattern, another emerges.**
+
+**The key insight: both reviews used the same model (Opus 4.6).** The difference wasn't capability — it was context isolation. A fresh context window catches structural blindspots that the generating context is blind to. This is why tcell exists: not a smarter model, but an independent one.
+
+**tcell system validation:**
+- 5 seed critics cold-started from 0% detection rate to functional, with 0% false positive rate
+- Overconfidence critic reached 80% detection (highest)
+- Position bias and premature closure critics reached 20% (lowest — structural patterns in data are harder to catch than keyword signals)
+- Iron Rule 1 ("never trust self-assessment") empirically confirmed across two independent rounds
 
 ## Architecture
 
