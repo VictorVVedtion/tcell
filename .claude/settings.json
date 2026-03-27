@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)/prepare.py\" hook-check --event \"$CLAUDE_TOOL_NAME\" --payload \"$CLAUDE_TOOL_OUTPUT_FILE\"",
+            "async": true,
+            "timeout": 10
+          }
+        ],
+        "description": "Sidebar Agent: 异步 hook 检查主 agent 的操作输出"
+      }
+    ]
+  }
+}

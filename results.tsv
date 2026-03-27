@@ -1,0 +1,6 @@
+iteration	critic	mutation_op	detection_before	detection_after	fp_rate	decision	reason
+1	homogenization	strategy_rewrite	0.00	0.40	0.00	keep	+40.0% detection, FP 0.0% within budget
+2	position_bias	focus_expand	0.00	0.20	0.00	keep	+20.0% detection, FP 0.0% within budget
+3	overconfidence	focus_expand	0.00	0.80	0.00	keep	+80.0% detection, FP 0.0% within budget
+4	premature_closure	focus_expand	0.00	0.20	0.00	keep	+20.0% detection, FP 0.0% within budget
+5	coverage_gaps	strategy_rewrite	0.00	0.40	0.00	keep	+40.0% detection, FP 0.0% within budget
