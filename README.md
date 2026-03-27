@@ -5,6 +5,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/VictorVVedtion/tcell/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python 3.8+"></a>
+  <a href="https://github.com/VictorVVedtion/tcell/stargazers"><img src="https://img.shields.io/github/stars/VictorVVedtion/tcell?style=social" alt="GitHub Stars"></a>
+</p>
+
+<p align="center">
   <strong>A cognitive immune system for AI agents.</strong><br>
   <em>Like T-cells in your body: silent when healthy, lethal when threats appear, and constantly evolving.</em>
 </p>
@@ -75,8 +81,12 @@ Built on [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) phi
 
 ## Quick Start
 
+<p align="center">
+  <img src="assets/demo.gif" alt="tcell demo — self-test, leaderboard, status" width="700">
+</p>
+
 ```bash
-git clone <repo-url> tcell
+git clone https://github.com/VictorVVedtion/tcell.git
 cd tcell
 
 # 1. Verify system integrity
