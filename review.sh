@@ -121,19 +121,21 @@ if [ -z "$CLAIM" ]; then
     CLAIM="数据处理完成，共 ${SAMPLE_COUNT} 条样本"
 fi
 
-# 写入 claim 文件
+# 写入 claim 文件（通过环境变量传入，避免 shell 注入）
+CLAIM_TEXT="$CLAIM" DATA_PATH="$SFT_PATH" STATS_JSON="$STATS" \
+CLAIM_TS="$TIMESTAMP" SAMPLE_N="$SAMPLE_COUNT" OUT_FILE="$CLAIM_FILE" \
 python3 -c "
-import json
+import json, os
 claim = {
-    'timestamp': '$TIMESTAMP',
-    'claim': '$CLAIM',
-    'data_path': '$SFT_PATH',
-    'sample_count': $SAMPLE_COUNT,
-    'stats': $STATS
+    'timestamp': os.environ['CLAIM_TS'],
+    'claim': os.environ['CLAIM_TEXT'],
+    'data_path': os.environ['DATA_PATH'],
+    'sample_count': int(os.environ['SAMPLE_N']),
+    'stats': json.loads(os.environ['STATS_JSON'])
 }
-with open('$CLAIM_FILE', 'w') as f:
+with open(os.environ['OUT_FILE'], 'w') as f:
     json.dump(claim, f, ensure_ascii=False, indent=2)
-print('  claim 文件:', '$CLAIM_FILE')
+print('  claim 文件:', os.environ['OUT_FILE'])
 "
 
 echo ""

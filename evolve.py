@@ -531,7 +531,8 @@ def leaderboard(json_mode: bool = False):
     """Critic 排行榜。"""
     stats = _load_critic_stats()
     canaries = load_jsonl(CANARIES_FILE)
-    cold_start = len(canaries) < 20
+    threshold = _get_cold_start_threshold()
+    cold_start = len(canaries) < threshold
 
     if not stats:
         print("No critics found.")
@@ -549,7 +550,7 @@ def leaderboard(json_mode: bool = False):
             "fleet_fp_rate": round(fleet_fp, 4),
             "cold_start": cold_start,
             "canaries_total": len(canaries),
-            "canaries_needed": max(0, 20 - len(canaries)),
+            "canaries_needed": max(0, threshold - len(canaries)),
         }, ensure_ascii=False, indent=2))
         return
 
@@ -562,7 +563,7 @@ def leaderboard(json_mode: bool = False):
 
     print(f"\nFleet detection: {fleet_det:.2f} | Fleet FP: {fleet_fp:.2f}")
     if cold_start:
-        print(f"Canaries: {len(canaries)} (cold start: need {20 - len(canaries)} more for evolution)")
+        print(f"Canaries: {len(canaries)} (cold start: need {threshold - len(canaries)} more for evolution)")
     else:
         print(f"Canaries: {len(canaries)} (evolution unlocked)")
 

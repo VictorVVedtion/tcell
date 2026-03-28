@@ -561,7 +561,6 @@ def _mine_reverts(target_root: Path, start_id: int) -> list[dict]:
     output = _run_git(target_root, [
         "log", "--all", "--oneline", "-20",
         "--grep=revert", "--grep=Revert", "--grep=undo", "--grep=re-fix",
-        "--grep=again",
     ])
     if not output:
         return []
@@ -775,7 +774,7 @@ def cmd_full(args):
     print()
 
     # Summary
-    total_canaries = len(list(CANARIES_FILE.open().readlines())) if CANARIES_FILE.exists() else 0
+    total_canaries = len(_load_existing_canary_ids()) if CANARIES_FILE.exists() else 0
     threshold = profile["bootstrap_threshold"]
     status = "ready" if total_canaries >= threshold else f"need {threshold - total_canaries} more canaries"
     print(f"=== Bootstrap complete ===")
