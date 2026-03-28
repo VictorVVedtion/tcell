@@ -298,7 +298,14 @@ def validate():
 
 
 # ── Self-Test ─────────────────────────────────────────
-COLD_START_THRESHOLD = 20
+def _get_cold_start_threshold() -> int:
+    """自适应冷启动阈值：auto-bootstrap=8, 手动=20。"""
+    state = load_state()
+    profile = state.get("project_profile", {})
+    return profile.get("bootstrap_threshold", 20)
+
+# 注意：不在模块级缓存阈值，避免 import 后 profile 变更时值过期。
+# 所有使用点直接调用 _get_cold_start_threshold()。
 
 def _parse_frontmatter(path: Path) -> dict:
     """解析 critic .md 文件的 YAML frontmatter（简化版，prepare.py 内部使用）。"""
@@ -385,11 +392,12 @@ def self_test(json_mode: bool = False):
         results.append(("INFO", f"Critics without canaries: {unused} (no test data yet)"))
 
     # 4. 冷启动状态
-    if len(canaries) >= COLD_START_THRESHOLD:
-        results.append(("PASS", f"Evolution: {len(canaries)}/{COLD_START_THRESHOLD} canaries (evolution unlocked)"))
+    cs_threshold = _get_cold_start_threshold()
+    if len(canaries) >= cs_threshold:
+        results.append(("PASS", f"Evolution: {len(canaries)}/{cs_threshold} canaries (evolution unlocked)"))
     else:
-        need = COLD_START_THRESHOLD - len(canaries)
-        results.append(("WARN", f"Cold start: {len(canaries)}/{COLD_START_THRESHOLD} canaries (need {need} more for evolution)"))
+        need = cs_threshold - len(canaries)
+        results.append(("WARN", f"Cold start: {len(canaries)}/{cs_threshold} canaries (need {need} more for evolution)"))
 
     # 5. 进化健康
     if RESULTS_FILE.exists():
@@ -431,7 +439,7 @@ def self_test(json_mode: bool = False):
             "results": [{"status": s, "message": m} for s, m in results],
             "summary": {"pass": passes, "warn": warns, "fail": fails, "info": infos},
             "healthy": fails == 0,
-            "cold_start": len(canaries) < COLD_START_THRESHOLD,
+            "cold_start": len(canaries) < _get_cold_start_threshold(),
         }, ensure_ascii=False, indent=2))
     else:
         icons = {"PASS": "[PASS]", "WARN": "[WARN]", "FAIL": "[FAIL]", "INFO": "[INFO]"}
@@ -439,7 +447,7 @@ def self_test(json_mode: bool = False):
         for s, m in results:
             print(f"  {icons[s]} {m}")
         print(f"\nResult: {passes}/{total_checks} PASS, {warns}/{total_checks} WARN, {fails}/{total_checks} FAIL")
-        if fails == 0 and len(canaries) >= COLD_START_THRESHOLD:
+        if fails == 0 and len(canaries) >= _get_cold_start_threshold():
             print("Status: HEALTHY (evolution mode)")
         elif fails == 0:
             print("Status: HEALTHY (cold start mode)")
@@ -447,7 +455,7 @@ def self_test(json_mode: bool = False):
             print("Status: UNHEALTHY")
 
     log_entry(f"🧪 Self-Test · {passes}/{total_checks} PASS, {warns} WARN, {fails} FAIL · "
-              f"{'cold_start' if len(canaries) < COLD_START_THRESHOLD else 'normal'}({len(canaries)}/{COLD_START_THRESHOLD})")
+              f"{'cold_start' if len(canaries) < _get_cold_start_threshold() else 'normal'}({len(canaries)}/{_get_cold_start_threshold()})")
 
     return fails == 0
 
@@ -493,10 +501,10 @@ def session_score(json_mode: bool = False):
                                "value": f"{fleet_det:.2f}", "label": "fleet avg"}
 
     # 2. Canary coverage (20%) — TUNABLE
-    canary_score = min(len(canaries) / COLD_START_THRESHOLD, 1.0)
+    canary_score = min(len(canaries) / _get_cold_start_threshold(), 1.0)
     dimensions["canaries"] = {"score": canary_score, "weight": 0.20,
-                              "value": f"{len(canaries)}/{COLD_START_THRESHOLD}",
-                              "label": "cold start" if len(canaries) < COLD_START_THRESHOLD else "normal"}
+                              "value": f"{len(canaries)}/{_get_cold_start_threshold()}",
+                              "label": "cold start" if len(canaries) < _get_cold_start_threshold() else "normal"}
 
     # 3. FP discipline (15%) — TUNABLE
     fleet_fp = (sum(s["fp_rate"] for s in critic_stats) / len(critic_stats)) if critic_stats else 0
@@ -575,7 +583,7 @@ def session_score(json_mode: bool = False):
             "dimensions": {k: {"score": round(v["score"], 2), "weight": v["weight"],
                                "value": v["value"]} for k, v in dimensions.items()},
             "diagnosis": diagnosis,
-            "cold_start": len(canaries) < COLD_START_THRESHOLD,
+            "cold_start": len(canaries) < _get_cold_start_threshold(),
         }, ensure_ascii=False, indent=2))
     else:
         grade_icons = {"ROBUST": "", "ADEQUATE": "", "DEVELOPING": "", "FRAGILE": "", "CRITICAL": ""}
@@ -591,7 +599,7 @@ def session_score(json_mode: bool = False):
         print(f"\nDiagnosis: {diagnosis}")
 
     log_entry(f"📊 Session Score · {total_score:.1f}/10 · {grade} · "
-              f"detection={fleet_det:.2f} canaries={len(canaries)}/{COLD_START_THRESHOLD}")
+              f"detection={fleet_det:.2f} canaries={len(canaries)}/{_get_cold_start_threshold()}")
 
     return total_score
 
@@ -601,7 +609,7 @@ def _diagnose(weakest_key: str, weakest_dim: dict, canary_count: int) -> str:
     if weakest_key == "detection":
         return "Fleet detection rate 偏低。优先运行更多进化迭代提升 critics 的检出能力。"
     elif weakest_key == "canaries":
-        need = COLD_START_THRESHOLD - canary_count
+        need = _get_cold_start_threshold() - canary_count
         return f"Canary 数量不足（还需 {need} 条）。运行 ./review.sh 审查更多数据来积累 canaries。"
     elif weakest_key == "fp_control":
         return "假阳性率偏高。检查 critics 的检测规则是否过于宽泛，考虑 focus_narrow 变异。"
@@ -622,7 +630,8 @@ def status():
     clean = load_jsonl(CLEAN_SAMPLES_FILE)
     critics = list(CRITICS_DIR.glob("*.md")) if CRITICS_DIR.exists() else []
 
-    cold_start = len(canaries) < 20
+    threshold = _get_cold_start_threshold()
+    cold_start = len(canaries) < threshold
 
     print(f"🐕 tcell Status")
     print(f"  canaries: {len(canaries)} {'(cold start)' if cold_start else '(normal mode)'}")

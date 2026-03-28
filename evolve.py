@@ -38,6 +38,7 @@ from prepare import (
     PROJECT_ROOT, CANARIES_FILE, CLEAN_SAMPLES_FILE, RESULTS_FILE,
     LOG_FILE, CRITICS_DIR, REPORTS_DIR,
     load_jsonl, evaluate_regret, evaluate_fp_rate, log_entry,
+    _get_cold_start_threshold,
 )
 
 MUTATION_OPERATORS = [
@@ -111,9 +112,9 @@ def select_next() -> dict:
     选择下一个要进化的 critic 和变异算子。
     策略：最久未进化的 critic 优先。
     """
-    # 冷启动门控：canaries < 20 时禁止进化
+    # 冷启动门控：canaries < threshold 时禁止进化（阈值自适应）
     canaries = load_jsonl(CANARIES_FILE)
-    COLD_START_THRESHOLD = 20
+    COLD_START_THRESHOLD = _get_cold_start_threshold()
     if len(canaries) < COLD_START_THRESHOLD:
         print(json.dumps({
             "error": "cold_start",
@@ -530,7 +531,8 @@ def leaderboard(json_mode: bool = False):
     """Critic 排行榜。"""
     stats = _load_critic_stats()
     canaries = load_jsonl(CANARIES_FILE)
-    cold_start = len(canaries) < 20
+    threshold = _get_cold_start_threshold()
+    cold_start = len(canaries) < threshold
 
     if not stats:
         print("No critics found.")
@@ -548,7 +550,7 @@ def leaderboard(json_mode: bool = False):
             "fleet_fp_rate": round(fleet_fp, 4),
             "cold_start": cold_start,
             "canaries_total": len(canaries),
-            "canaries_needed": max(0, 20 - len(canaries)),
+            "canaries_needed": max(0, threshold - len(canaries)),
         }, ensure_ascii=False, indent=2))
         return
 
@@ -561,7 +563,7 @@ def leaderboard(json_mode: bool = False):
 
     print(f"\nFleet detection: {fleet_det:.2f} | Fleet FP: {fleet_fp:.2f}")
     if cold_start:
-        print(f"Canaries: {len(canaries)} (cold start: need {20 - len(canaries)} more for evolution)")
+        print(f"Canaries: {len(canaries)} (cold start: need {threshold - len(canaries)} more for evolution)")
     else:
         print(f"Canaries: {len(canaries)} (evolution unlocked)")
 

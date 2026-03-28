@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # review.sh — 一键 tcell 审查
-# 用法: ./review.sh <SFT数据路径> [主agent的质量声明]
+# 用法: ./review.sh <数据路径> [主agent的质量声明]
 #
 # 示例:
 #   ./review.sh path/to/your-data.jsonl
 #   ./review.sh path/to/your-data.jsonl "248 samples all passed, quality score mean 0.95"
 #
 # 完整 4 步流程:
-#   Step 1: 分析 SFT 数据，自动生成质量声明摘要
+#   Step 1: 分析项目数据，自动生成质量声明摘要
 #   Step 2: Hook 检查（轻量模式匹配）
 #   Step 3: 输出独立审查 prompt（需要在 Claude Code 中用 subagent 执行）
 #   Step 4: 追加结果到 sidebar.log.md
@@ -15,7 +15,7 @@
 set -euo pipefail
 
 SIDEBAR_ROOT="$(cd "$(dirname "$0")" && pwd)"
-SFT_PATH="${1:?用法: ./review.sh <SFT数据路径> [质量声明]}"
+SFT_PATH="${1:?用法: ./review.sh <数据路径> [质量声明]}"
 CLAIM="${2:-}"
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 CLAIM_FILE="/tmp/sidebar-claim-$(date +%s).json"
@@ -32,8 +32,8 @@ echo -e "${CYAN}🐕 tcell — 完整审查流程${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════${NC}"
 echo ""
 
-# ── Step 1: 分析 SFT 数据 ──────────────────────────
-echo -e "${YELLOW}Step 1/4: 分析 SFT 数据...${NC}"
+# ── Step 1: 分析项目数据 ──────────────────────────
+echo -e "${YELLOW}Step 1/4: 分析项目数据...${NC}"
 
 if [ ! -f "$SFT_PATH" ]; then
     echo -e "${RED}错误: 文件不存在 — $SFT_PATH${NC}"
@@ -44,7 +44,18 @@ SAMPLE_COUNT=$(wc -l < "$SFT_PATH" | tr -d ' ')
 echo "  文件: $SFT_PATH"
 echo "  样本数: $SAMPLE_COUNT"
 
-# 提取关键统计
+# 从 project_profile 读取要搜索的字段（回退到默认字段）
+DATA_FIELDS=$(python3 -c "
+import json
+try:
+    state = json.load(open('$SIDEBAR_ROOT/.claude/sidebar.local.json'))
+    fields = state.get('project_profile', {}).get('data_fields', ['confidence', 'action', 'bias'])
+except:
+    fields = ['confidence', 'action', 'bias']
+print(json.dumps(fields))
+" 2>/dev/null || echo '["confidence", "action", "bias"]')
+
+# 提取关键统计（字段动态化）
 STATS=$(python3 -c "
 import json, sys
 from collections import Counter
@@ -63,74 +74,42 @@ if not data:
     print(json.dumps({'error': 'no data', 'count': 0}))
     sys.exit(0)
 
-# 尝试提取常见字段的统计
 stats = {'count': len(data)}
+fields = json.loads('$DATA_FIELDS')
 
-# confidence 分布
-confs = []
-for d in data:
-    # 递归搜索 confidence 字段
-    def find_conf(obj, depth=0):
-        if depth > 5: return
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                if 'confidence' in k.lower() and isinstance(v, (int, float)):
-                    confs.append(v)
-                elif isinstance(v, (dict, list)):
-                    find_conf(v, depth+1)
-        elif isinstance(obj, list):
-            for item in obj:
-                find_conf(item, depth+1)
-    find_conf(d)
+def find_field_values(data_list, field_name):
+    nums, strs = [], []
+    for d in data_list:
+        def _search(obj, depth=0):
+            if depth > 5: return
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    if field_name in k.lower():
+                        if isinstance(v, (int, float)):
+                            nums.append(v)
+                        elif isinstance(v, str):
+                            strs.append(v)
+                    elif isinstance(v, (dict, list)):
+                        _search(v, depth+1)
+            elif isinstance(obj, list):
+                for item in obj:
+                    _search(item, depth+1)
+        _search(d)
+    return nums, strs
 
-if confs:
-    from statistics import mean, stdev
-    stats['confidence_mean'] = round(mean(confs), 4)
-    stats['confidence_std'] = round(stdev(confs), 4) if len(confs) > 1 else 0
-    stats['confidence_count'] = len(confs)
-    # 最高频值
-    counter = Counter(round(c, 2) for c in confs)
-    most_common = counter.most_common(1)[0]
-    stats['confidence_mode'] = most_common[0]
-    stats['confidence_mode_pct'] = round(most_common[1] / len(confs) * 100, 1)
-
-# action 分布
-actions = []
-for d in data:
-    def find_action(obj, depth=0):
-        if depth > 5: return
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                if k == 'action' and isinstance(v, str):
-                    actions.append(v)
-                elif isinstance(v, (dict, list)):
-                    find_action(v, depth+1)
-        elif isinstance(obj, list):
-            for item in obj:
-                find_action(item, depth+1)
-    find_action(d)
-
-if actions:
-    stats['action_distribution'] = dict(Counter(actions))
-
-# bias type 分布
-biases = []
-for d in data:
-    def find_bias(obj, depth=0):
-        if depth > 5: return
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                if 'bias' in k.lower() and isinstance(v, str):
-                    biases.append(v)
-                elif isinstance(v, (dict, list)):
-                    find_bias(v, depth+1)
-        elif isinstance(obj, list):
-            for item in obj:
-                find_bias(item, depth+1)
-    find_bias(d)
-
-if biases:
-    stats['bias_distribution'] = dict(Counter(biases))
+for field in fields:
+    nums, strs = find_field_values(data, field)
+    if nums:
+        from statistics import mean, stdev
+        stats[f'{field}_mean'] = round(mean(nums), 4)
+        stats[f'{field}_std'] = round(stdev(nums), 4) if len(nums) > 1 else 0
+        stats[f'{field}_count'] = len(nums)
+        counter = Counter(round(n, 2) for n in nums)
+        most_common = counter.most_common(1)[0]
+        stats[f'{field}_mode'] = most_common[0]
+        stats[f'{field}_mode_pct'] = round(most_common[1] / len(nums) * 100, 1)
+    if strs:
+        stats[f'{field}_distribution'] = dict(Counter(strs))
 
 print(json.dumps(stats, ensure_ascii=False))
 " 2>/dev/null || echo '{"count": 0, "error": "parse failed"}')
@@ -139,22 +118,24 @@ echo "  统计: $STATS"
 
 # 自动生成 claim（如果未提供）
 if [ -z "$CLAIM" ]; then
-    CLAIM="SFT 数据生成完成，共 ${SAMPLE_COUNT} 条样本"
+    CLAIM="数据处理完成，共 ${SAMPLE_COUNT} 条样本"
 fi
 
-# 写入 claim 文件
+# 写入 claim 文件（通过环境变量传入，避免 shell 注入）
+CLAIM_TEXT="$CLAIM" DATA_PATH="$SFT_PATH" STATS_JSON="$STATS" \
+CLAIM_TS="$TIMESTAMP" SAMPLE_N="$SAMPLE_COUNT" OUT_FILE="$CLAIM_FILE" \
 python3 -c "
-import json
+import json, os
 claim = {
-    'timestamp': '$TIMESTAMP',
-    'claim': '$CLAIM',
-    'data_path': '$SFT_PATH',
-    'sample_count': $SAMPLE_COUNT,
-    'stats': $STATS
+    'timestamp': os.environ['CLAIM_TS'],
+    'claim': os.environ['CLAIM_TEXT'],
+    'data_path': os.environ['DATA_PATH'],
+    'sample_count': int(os.environ['SAMPLE_N']),
+    'stats': json.loads(os.environ['STATS_JSON'])
 }
-with open('$CLAIM_FILE', 'w') as f:
+with open(os.environ['OUT_FILE'], 'w') as f:
     json.dump(claim, f, ensure_ascii=False, indent=2)
-print('  claim 文件:', '$CLAIM_FILE')
+print('  claim 文件:', os.environ['OUT_FILE'])
 "
 
 echo ""
@@ -173,11 +154,22 @@ echo -e "${CYAN}将以下 prompt 复制到 Claude Code 中用 Agent subagent 执
 echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
 echo ""
 
+# 动态枚举 critics/ 目录下所有 critic
+CRITIC_LIST=""
+CRITIC_COUNT=0
+for critic_file in "$SIDEBAR_ROOT/critics/"*.md; do
+    if [ -f "$critic_file" ]; then
+        CRITIC_LIST="${CRITIC_LIST}   - ${critic_file}
+"
+        CRITIC_COUNT=$((CRITIC_COUNT + 1))
+    fi
+done
+
 cat << PROMPT_END
 你是一个独立的认知审查员。你没有看过主 agent 的对话，你的上下文是干净的。
 
 ## 待审查数据
-- SFT 数据: $SFT_PATH ($SAMPLE_COUNT 条)
+- 数据: $SFT_PATH ($SAMPLE_COUNT 条)
 - 主 agent 声明: $CLAIM_FILE
 - 数据统计: $STATS
 
@@ -187,19 +179,14 @@ cat << PROMPT_END
 - $SIDEBAR_ROOT/canaries.jsonl（历史盲区，避免重蹈覆辙）
 
 ## 审查步骤
-1. 读取 SFT 数据文件，抽样 10-20 条进行深度分析
-2. 按 critics/ 目录下的 5 个 critic 逐一检查：
-   - $SIDEBAR_ROOT/critics/overconfidence.md
-   - $SIDEBAR_ROOT/critics/homogenization.md
-   - $SIDEBAR_ROOT/critics/coverage_gaps.md
-   - $SIDEBAR_ROOT/critics/position_bias.md
-   - $SIDEBAR_ROOT/critics/premature_closure.md
-3. 对每个 critic，输出结构化 JSON 结果
+1. 读取数据文件，抽样 10-20 条进行深度分析
+2. 按 critics/ 目录下的 ${CRITIC_COUNT} 个 critic 逐一检查：
+${CRITIC_LIST}3. 对每个 critic，输出结构化 JSON 结果
 4. 魔鬼辩护：对主 agent 的每个质量声明，列出 3 个可能是错的理由
 5. 综合评分（0-10）并输出发现摘要
 
 ## 输出格式
-```json
+\`\`\`json
 {
   "overall_score": 7.5,
   "findings": [
@@ -210,7 +197,7 @@ cat << PROMPT_END
   ],
   "summary": "一段话总结"
 }
-```
+\`\`\`
 
 重点关注历史盲区（canaries.jsonl 中的模式）是否再次出现。
 PROMPT_END
